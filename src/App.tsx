@@ -729,4 +729,170 @@ function AssessmentsView({ allFrameworks, activeFwKeys, selectedFwKey, setSelect
       <div className="space-y-4">
         {Object.entries(grouped).map(([group, qs]) => (
           <div key={group} className="rounded-2xl border overflow-hidden">
-            <div classN
+            <div className="px-4 py-3 bg-gray-50 border-b font-medium">{group}</div>
+            <div className="divide-y">
+              {qs.map(q => (
+                <div key={q.id} className="p-4 grid md:grid-cols-12 gap-3 items-start">
+                  <div className="md:col-span-6">
+                    <div className="font-medium text-sm">{q.text}</div>
+                    {q.clause && <div className="text-xs text-gray-500 mt-1">Section: {friendlyClauseSection(q.clause)} • Weight {q.weight ?? 1}{q.maturity ? ` • Maturity ${q.maturity}`: ""}</div>}
+                  </div>
+                  <div className="md:col-span-3">
+                    <div className="flex flex-wrap gap-2">
+                      {(q.choices || ynu()).map(c => (
+                        <button key={c.value} onClick={() => onAnswer(q.id, c.value)} className={classNames("px-3 py-1.5 rounded-lg border text-sm", answers[q.id] === c.value ? "bg-gray-900 text-white" : "hover:bg-gray-100")}>{c.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="md:col-span-3">
+                    <input className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" placeholder="Notes / evidence link" value={notes[q.id] || ""} onChange={e=>onNote(q.id, e.target.value)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button onClick={onRunAI} className="rounded-lg bg-gray-900 text-white px-4 py-2">Run AI analysis</button>
+        <button onClick={onReset} className="rounded-lg border px-4 py-2 hover:bg-gray-50">Reset answers</button>
+        <span className="text-xs text-gray-500">Risks update automatically when you change answers.</span>
+      </div>
+
+      {aiOutput && (
+        <div className="rounded-2xl border p-5 shadow-sm whitespace-pre-line">
+          <div className="font-medium mb-2">AI Feedback & Suggestions</div>
+          <pre className="text-sm leading-6 whitespace-pre-wrap">{aiOutput}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Risks (auto‑derived from answers) ───────────────────────────────────
+function RisksView({ risks, frameworks, activeFwKeys }:{ risks: Risk[]; frameworks: Framework[]; activeFwKeys: string[]; }) {
+  const [filterFw, setFilterFw] = useState<string>("all");
+  const active = frameworks.filter(f=>activeFwKeys.includes(f.key));
+  const list = risks.filter(r => filterFw === "all" ? true : r.frameworkKey === filterFw);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-semibold">Risks</h1>
+        <div className="flex items-center gap-2">
+          <select value={filterFw} onChange={e=>setFilterFw(e.target.value)} className="rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
+            <option value="all">All frameworks</option>
+            {active.map(f=> <option key={f.key} value={f.key}>{f.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <KPI title="Open" value={`${list.filter(r=>r.status!=="Closed" && r.status!=="Accepted").length}`} />
+        <KPI title="Mitigating" value={`${list.filter(r=>r.status==="Mitigating").length}`} />
+        <KPI title="Accepted/Closed" value={`${list.filter(r=>r.status==="Accepted"||r.status==="Closed").length}`} />
+        <KPI title="Total" value={`${list.length}`} />
+      </div>
+
+      {/* Risk list (read‑only; managed via Assessments) */}
+      <div className="rounded-2xl border p-5 shadow-sm">
+        <div className="font-medium mb-3">Risk Register (auto‑generated from Assessments)</div>
+        <div className="text-xs text-gray-500 mb-3">Update answers in Assessments to resolve/mitigate risks.</div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th className="py-2 pr-4">Title</th>
+                <th className="py-2 pr-4">Score</th>
+                <th className="py-2 pr-4">Status</th>
+                <th className="py-2 pr-4">Framework/Control</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(r => (
+                <tr key={r.id} className="border-t">
+                  <td className="py-2 pr-4">{r.title}</td>
+                  <td className="py-2 pr-4">{r.likelihood*r.impact} <span className="text-gray-500">(L{r.likelihood}×I{r.impact})</span></td>
+                  <td className="py-2 pr-4">{r.status}</td>
+                  <td className="py-2 pr-4">{r.frameworkKey||"—"}{r.controlId?` • ${r.controlId}`:""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Integrations ───────────────────────────────────────────────────────
+function IntegrationsView({ providerCatalog, connections, onConnect, onDisconnect, ingestOverwrite, setIngestOverwrite, ingestTargetFw, setIngestTargetFw, frameworks, onIngest }:{
+  providerCatalog: Record<string, { name: string; sample: Record<string, any>; mappings: Record<string, string> }>;
+  connections: Record<string, { connected: boolean; lastSync?: string; data?: Record<string, any> }>;
+  onConnect: (k: any) => void;
+  onDisconnect: (k: any) => void;
+  ingestOverwrite: boolean;
+  setIngestOverwrite: (v: boolean) => void;
+  ingestTargetFw: string;
+  setIngestTargetFw: (v: string) => void;
+  frameworks: Framework[];
+  onIngest: () => void;
+}) {
+  const providers = Object.entries(providerCatalog);
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Integrations</h1>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Providers list */}
+        <div className="lg:col-span-2 rounded-2xl border p-5 shadow-sm">
+          <div className="font-medium mb-3">Connect Providers</div>
+          <ul className="divide-y">
+            {providers.map(([key, meta]) => {
+              const conn = connections[key as keyof typeof connections] || { connected: false };
+              return (
+                <li key={key} className="py-3 flex items-start justify-between gap-4">
+                  <div>
+                    <div className="font-medium flex items-center gap-2">{meta.name} {conn.connected && <Badge>Connected</Badge>}</div>
+                    <div className="text-xs text-gray-500">Maps to: {Object.values(meta.mappings).join(", ") || "(no mappings)"}</div>
+                    {conn.connected && conn.data && (
+                      <pre className="text-xs bg-gray-50 border rounded-lg p-2 mt-2 max-h-40 overflow-auto">{JSON.stringify(conn.data, null, 2)}</pre>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {conn.connected ? (
+                      <button onClick={() => onDisconnect(key)} className="px-3 py-1.5 rounded-lg border hover:bg-gray-100">Disconnect</button>
+                    ) : (
+                      <button onClick={() => onConnect(key)} className="px-3 py-1.5 rounded-lg bg-gray-900 text-white">Connect</button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* Ingest panel */}
+        <div className="rounded-2xl border p-5 shadow-sm space-y-3">
+          <div className="font-medium">Apply Data to Assessments</div>
+          <label className="text-sm text-gray-600">Target framework</label>
+          <select className="w-full rounded-lg border px-3 py-2" value={ingestTargetFw} onChange={e=>setIngestTargetFw(e.target.value)}>
+            {frameworks.map(f=> <option key={f.key} value={f.key}>{f.name} {f.version||""}</option>)}
+          </select>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={ingestOverwrite} onChange={e=>setIngestOverwrite(e.target.checked)} />
+            Overwrite existing answers (otherwise only fill blanks)
+          </label>
+
+          <button onClick={onIngest} className="w-full rounded-lg bg-gray-900 text-white px-4 py-2">Ingest from connected providers</button>
+          <div className="text-xs text-gray-500">We infer Yes/No from provider booleans. You can adjust answers afterward in Assessments. Evidence links can go into Notes.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
